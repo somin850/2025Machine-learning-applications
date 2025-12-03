@@ -71,9 +71,26 @@ def initialize_system():
     # 캡션 DB 초기화
     initialize_databases_from_training_data(training_data, db_manager)
     
-    # 캡션 임베딩 DB는 처음에는 비어있음 (생성된 캡션만 저장)
-    print("\n--- Step 4: Initializing Caption Embedding Database ---")
-    print("  Caption Embedding DB initialized as empty (will store generated captions only)")
+    # 기존 my_captions.json과 caption_embeddings.json 로드 (있는 경우)
+    print("\n--- Step 4: Loading Existing Generated Captions ---")
+    try:
+        # 기존 생성된 캡션 로드
+        my_caption_loaded = db_manager.my_caption_db.load_db()
+        if my_caption_loaded:
+            print(f"✓ Loaded existing my_captions.json: {db_manager.my_caption_db.size()} captions")
+        else:
+            print("  No existing my_captions.json found - starting fresh")
+        
+        # 기존 캡션 임베딩 로드
+        caption_embedding_loaded = db_manager.caption_embedding_db.load_db()
+        if caption_embedding_loaded:
+            print(f"✓ Loaded existing caption_embeddings.json: {db_manager.caption_embedding_db.size()} embeddings")
+        else:
+            print("  No existing caption_embeddings.json found - starting fresh")
+            
+    except Exception as e:
+        print(f"  Warning: Could not load existing files: {e}")
+        print("  Starting with empty my_caption and caption_embedding databases")
     
     # 데이터베이스 동기화 확인
     print("\n--- Step 5: Database Synchronization Check ---")
@@ -139,9 +156,17 @@ def run_experiment(dataset_loader, db_manager, experiment_index: int = None):
     # Step 3: 새로운 데이터를 DB에 추가
     print("\n--- Step 3: Adding New Data to Databases ---")
     
-    # 새로운 인덱스 생성 (기존 최대 인덱스 + 1)
-    existing_indices = list(db_manager.caption_db.get_all_captions().keys())
-    new_index = max(existing_indices) + 1 if existing_indices else 0
+    # 새로운 인덱스 생성 (기존 생성된 캡션의 최대 인덱스 + 1)
+    # 원본 캡션 DB와 생성된 캡션 DB의 최대 인덱스를 모두 고려
+    original_indices = list(db_manager.caption_db.get_all_captions().keys())
+    my_caption_indices = list(db_manager.my_caption_db.get_all_captions().keys())
+    
+    all_indices = original_indices + my_caption_indices
+    new_index = max(all_indices) + 1 if all_indices else 0
+    
+    print(f"  - Original captions: {len(original_indices)} entries")
+    print(f"  - Generated captions: {len(my_caption_indices)} entries") 
+    print(f"  - New index: {new_index}")
     
     # 이미지 임베딩 생성
     from image_embedder import create_image_embedder

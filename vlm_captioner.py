@@ -47,17 +47,16 @@ class VLMCaptioner:
                 "torch_dtype": torch.bfloat16 if device.type == "cuda" else torch.float32,
             }
             
-            # A100에서 Flash Attention 2 사용
+            # 기본 attention 사용 (안정성 우선)
+            model_kwargs["_attn_implementation"] = "eager"
+            
             if device.type == "cuda":
-                model_kwargs["_attn_implementation"] = "flash_attention_2"
-                print("  - Flash Attention 2 enabled for A100 optimization")
+                print("  - Using eager attention for stable performance")
                 
                 # A100 MIG에서 메모리 최적화
                 model_kwargs["low_cpu_mem_usage"] = True
                 model_kwargs["device_map"] = "auto"
                 print("  - Memory optimization enabled for A100 MIG")
-            else:
-                model_kwargs["_attn_implementation"] = "eager"
             
             self.model = AutoModelForVision2Seq.from_pretrained(model_name, **model_kwargs)
             
