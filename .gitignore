@@ -1,0 +1,26 @@
+# 큰 데이터베이스 파일들
+*.json
+!requirements.txt
+!README.md
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 데이터 폴더
+data/
+results/
+Original_DB/
+
+# 가상환경
+venv/
+env/
+*.env
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
