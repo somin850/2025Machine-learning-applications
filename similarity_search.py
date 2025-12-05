@@ -24,13 +24,15 @@ class SimilaritySearcher:
         self.db_indices, self.db_embeddings = self.db.get_all_embeddings()
         print(f"SimilaritySearcher initialized with {len(self.db_indices)} embeddings.")
     
-    def find_similar_images(self, query_embedding: np.ndarray, top_k: int = None) -> List[Dict]:
+    def find_similar_images(self, query_embedding: np.ndarray, top_k: int = None, 
+                           similarity_threshold: float = None) -> List[Dict]:
         """
         쿼리 임베딩과 가장 유사한 이미지들을 찾습니다.
         
         Args:
             query_embedding (np.ndarray): 쿼리 이미지의 임베딩 벡터
             top_k (int): 반환할 상위 K개 결과 (기본값: config.TOP_K_SIMILAR)
+            similarity_threshold (float): 유사도 임계값 (이 값 이상인 결과만 반환)
         
         Returns:
             List[Dict]: 유사한 이미지들의 정보 리스트
@@ -48,12 +50,16 @@ class SimilaritySearcher:
         # 유사도 순으로 정렬 (내림차순)
         sorted_indices = np.argsort(similarities)[::-1]
         
-        # 상위 K개 결과 추출
+        # 결과 추출 (유사도 임계값 적용)
         results = []
-        for i in range(min(top_k, len(sorted_indices))):
+        for i in range(len(sorted_indices)):
             db_idx = sorted_indices[i]
             original_index = self.db_indices[db_idx]
             similarity_score = similarities[db_idx]
+            
+            # 유사도 임계값 확인
+            if similarity_threshold is not None and similarity_score < similarity_threshold:
+                break  # 임계값 미만이면 중단 (정렬되어 있으므로 이후는 모두 미만)
             
             # 메타데이터 가져오기
             metadata = self.db.metadata.get(original_index, {})
@@ -63,10 +69,15 @@ class SimilaritySearcher:
                 'similarity': float(similarity_score),
                 'metadata': metadata
             })
+            
+            # top_k 제한 적용 (임계값을 만족하는 결과 중에서)
+            if len(results) >= top_k:
+                break
         
         return results
     
-    def search_by_image_index(self, experiment_data: list, experiment_index: int, top_k: int = None) -> Dict:
+    def search_by_image_index(self, experiment_data: list, experiment_index: int, 
+                             top_k: int = None, similarity_threshold: float = None) -> Dict:
         """
         실험 데이터의 특정 이미지로 유사한 이미지들을 검색합니다.
         
@@ -74,9 +85,10 @@ class SimilaritySearcher:
             experiment_data (list): 실험 데이터 리스트
             experiment_index (int): 실험할 이미지의 인덱스
             top_k (int): 반환할 상위 K개 결과
+            similarity_threshold (float): 유사도 임계값
         
         Returns:
-            Dict: 검색 결과 {'query_info', 'similar_images'}
+            Dict: 검색 결과 {'query_info', 'similar_images', 'filtered_count'}
         """
         if experiment_index >= len(experiment_data):
             raise IndexError(f"Experiment index {experiment_index} out of range")
@@ -90,8 +102,8 @@ class SimilaritySearcher:
         embedder = create_image_embedder()
         query_embedding = embedder.embed_image(query_image)
         
-        # 유사한 이미지 검색
-        similar_images = self.find_similar_images(query_embedding, top_k)
+        # 유사한 이미지 검색 (임계값 적용)
+        similar_images = self.find_similar_images(query_embedding, top_k, similarity_threshold)
         
         # 결과 구성
         result = {
@@ -100,7 +112,9 @@ class SimilaritySearcher:
                 'original_index': query_item['original_index'],
                 'caption': query_item['caption']
             },
-            'similar_images': similar_images
+            'similar_images': similar_images,
+            'filtered_count': len(similar_images),
+            'similarity_threshold': similarity_threshold
         }
         
         return result
@@ -139,7 +153,8 @@ def create_similarity_searcher(image_embedding_db):
 
 
 def search_similar_images(experiment_data: list, experiment_index: int, 
-                         image_embedding_db, top_k: int = None) -> Dict:
+                         image_embedding_db, top_k: int = None, 
+                         similarity_threshold: float = None) -> Dict:
     """
     실험 이미지로 유사한 이미지들을 검색하는 편의 함수
     
@@ -148,9 +163,10 @@ def search_similar_images(experiment_data: list, experiment_index: int,
         experiment_index (int): 실험할 이미지의 인덱스
         image_embedding_db: ImageEmbeddingDB 인스턴스
         top_k (int): 반환할 상위 K개 결과
+        similarity_threshold (float): 유사도 임계값
     
     Returns:
         Dict: 검색 결과
     """
     searcher = create_similarity_searcher(image_embedding_db)
-    return searcher.search_by_image_index(experiment_data, experiment_index, top_k)
+    return searcher.search_by_image_index(experiment_data, experiment_index, top_k, similarity_threshold)

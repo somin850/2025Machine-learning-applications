@@ -7,11 +7,7 @@ import torch
 import random
 import os
 
-# --- Hugging Face 토큰 설정 ---
-# 환경변수에서 토큰을 가져오거나 직접 설정
-HUGGINGFACE_TOKEN = os.getenv('HUGGINGFACE_TOKEN', None)
-# 또는 직접 토큰을 입력하세요 (보안상 환경변수 사용 권장):
-
+#HUGGINGFACE_TOKEN = "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"
 
 # 토큰이 필요한 모델들
 MODELS_REQUIRING_TOKEN = [

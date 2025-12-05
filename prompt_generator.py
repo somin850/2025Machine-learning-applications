@@ -24,11 +24,11 @@ class PromptGenerator:
     
     def _get_default_template(self) -> str:
         """기본 프롬프트 템플릿을 반환합니다."""
-        return """Here are captions from similar images:
+        return """The similar Image have these captions
 
 {similar_captions}
 
-Based on these similar image captions above, please generate an accurate and detailed caption for the input image. The caption should be in English and include the main objects, actions, background, colors, and other important visual elements in the image."""
+Based on these similar image captions above, please generate an accurate and detailed caption for the input image. The caption should be in English"""
     
     def generate_prompt(self, similar_captions: List[str], debug: bool = False) -> str:
         """
@@ -42,7 +42,7 @@ Based on these similar image captions above, please generate an accurate and det
             str: 생성된 프롬프트
         """
         if not similar_captions:
-            return "Please generate a detailed caption for this image in English."
+            return "Based on these similar image captions above, please generate an accurate and detailed caption for the input image. The caption should be in English"
         
         # 캡션들을 번호와 함께 포맷팅
         formatted_captions = []
@@ -72,28 +72,46 @@ Based on these similar image captions above, please generate an accurate and det
         
         return prompt
     
-    def generate_prompt_from_search_result(self, search_result: Dict, db_manager=None) -> str:
+    def generate_prompt_from_search_result(self, search_result: Dict, db_manager=None, 
+                                          similarity_threshold: float = 0.75, max_captions: int = 3) -> str:
         """
-        검색 결과로부터 프롬프트를 생성합니다.
+        검색 결과로부터 동적 프롬프트를 생성합니다.
+        유사도 임계값 이상의 이미지가 있으면 해당 캡션들을 사용하고,
+        없으면 기본 프롬프트를 반환합니다.
         
         Args:
             search_result (Dict): similarity_search에서 반환된 검색 결과
             db_manager: DatabaseManager 인스턴스 (캡션 검색용)
+            similarity_threshold (float): 유사도 임계값 (기본값: 0.75)
+            max_captions (int): 최대 캡션 개수 (기본값: 3)
         
         Returns:
             str: 생성된 프롬프트
         """
         similar_images = search_result.get('similar_images', [])
         
+        # 유사도 임계값 이상의 이미지들만 필터링
+        high_similarity_images = [
+            img for img in similar_images 
+            if img.get('similarity', 0.0) >= similarity_threshold
+        ]
+        
+        # 유사도 임계값 이상의 이미지가 없으면 기본 프롬프트 반환
+        if not high_similarity_images:
+            return "Based on these similar image captions above, please generate an accurate and detailed caption for the input image. The caption should be in English"
+        
+        # 최대 개수만큼 선택 (이미 유사도 순으로 정렬되어 있음)
+        selected_images = high_similarity_images[:max_captions]
+        
         # 유사한 이미지들의 캡션 추출
         if db_manager:
             # DB 매니저를 사용하여 캡션 검색 (원본 + 생성된 캡션)
-            indices = [img_info['index'] for img_info in similar_images]
+            indices = [img_info['index'] for img_info in selected_images]
             captions = db_manager.get_captions_by_indices(indices)
         else:
             # 기존 방식: 메타데이터에서 캡션 추출
             captions = []
-            for img_info in similar_images:
+            for img_info in selected_images:
                 metadata = img_info.get('metadata', {})
                 caption = metadata.get('caption', 'No caption available')
                 captions.append(caption)
@@ -206,14 +224,18 @@ def create_advanced_prompt_generator(template: str = None, include_similarity_sc
 
 
 def generate_vlm_prompt(search_result: Dict, template: str = None, 
-                       include_scores: bool = False) -> str:
+                       include_scores: bool = False, db_manager=None,
+                       similarity_threshold: float = 0.75, max_captions: int = 3) -> str:
     """
-    검색 결과로부터 VLM용 프롬프트를 생성하는 편의 함수
+    검색 결과로부터 VLM용 동적 프롬프트를 생성하는 편의 함수
     
     Args:
         search_result (Dict): 검색 결과
         template (str): 프롬프트 템플릿
         include_scores (bool): 유사도 점수 포함 여부
+        db_manager: DatabaseManager 인스턴스
+        similarity_threshold (float): 유사도 임계값 (기본값: 0.75)
+        max_captions (int): 최대 캡션 개수 (기본값: 3)
     
     Returns:
         str: 생성된 프롬프트
@@ -223,4 +245,6 @@ def generate_vlm_prompt(search_result: Dict, template: str = None,
         return generator.generate_prompt_with_scores(search_result.get('similar_images', []))
     else:
         generator = create_prompt_generator(template)
-        return generator.generate_prompt_from_search_result(search_result)
+        return generator.generate_prompt_from_search_result(
+            search_result, db_manager, similarity_threshold, max_captions
+        )

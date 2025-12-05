@@ -116,28 +116,39 @@ def run_experiment(dataset_loader, db_manager, experiment_index: int = None):
     if experiment_index >= len(experiment_data):
         raise ValueError(f"Experiment index {experiment_index} out of range. Max: {len(experiment_data) - 1}")
     
-    # Step 1: 유사한 이미지 검색
-    print("\n--- Step 1: Finding Similar Images ---")
+    # Step 1: 유사한 이미지 검색 (유사도 임계값 적용)
+    print("\n--- Step 1: Finding Similar Images with Threshold ---")
+    similarity_threshold = 0.75  # 유사도 임계값 설정
     search_result = search_similar_images(
         experiment_data=experiment_data,
         experiment_index=experiment_index,
         image_embedding_db=db_manager.image_embedding_db,
-        top_k=config.TOP_K_SIMILAR
+        top_k=config.TOP_K_SIMILAR,
+        similarity_threshold=similarity_threshold
     )
     
     # 검색 결과 출력
     query_info = search_result['query_info']
     similar_images = search_result['similar_images']
+    filtered_count = search_result.get('filtered_count', len(similar_images))
+    threshold_used = search_result.get('similarity_threshold', similarity_threshold)
     
     print(f"Query Image Info:")
     print(f"  - Experiment Index: {query_info['experiment_index']}")
     print(f"  - Original Index: {query_info['original_index']}")
     print(f"  - Original Caption: {query_info['caption']}")
     
-    print(f"\nTop {len(similar_images)} Similar Images:")
-    for i, img_info in enumerate(similar_images, 1):
-        print(f"  {i}. Index: {img_info['index']}, Similarity: {img_info['similarity']:.4f}")
-        print(f"     Caption: {img_info['metadata']['caption']}")
+    print(f"\nSimilarity Search Results (Threshold: {threshold_used}):")
+    print(f"  - Images above threshold: {filtered_count}")
+    
+    if similar_images:
+        print(f"\nTop {len(similar_images)} Similar Images:")
+        for i, img_info in enumerate(similar_images, 1):
+            print(f"  {i}. Index: {img_info['index']}, Similarity: {img_info['similarity']:.4f}")
+            print(f"     Caption: {img_info['metadata']['caption']}")
+    else:
+        print("  - No images found above the similarity threshold")
+        print("  - Will use default prompt without similar examples")
     
     # Step 2: VLM으로 캡션 생성
     print("\n--- Step 2: Generating Caption with VLM ---")
@@ -148,7 +159,8 @@ def run_experiment(dataset_loader, db_manager, experiment_index: int = None):
         search_result=search_result,
         max_new_tokens=config.MAX_LENGTH,
         temperature=config.TEMPERATURE,
-        db_manager=db_manager
+        db_manager=db_manager,
+        similarity_threshold=similarity_threshold
     )
     
     print(f"Generated Caption: {generated_caption}")
@@ -269,8 +281,12 @@ def run_all_experiments(dataset_loader, db_manager):
             print(f"✅ Experiment {i} completed successfully")
             
             # GPU 메모리 정리 (CUDA 사용 시)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass  # torch가 없으면 무시
                 
         except Exception as e:
             print(f"❌ Experiment {i} failed: {e}")

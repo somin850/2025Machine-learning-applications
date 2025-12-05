@@ -193,11 +193,13 @@ class VLMCaptioner:
         
         return caption
     
-    def generate_caption_from_search_result(self, image, search_result: dict,
+    def generate_caption_from_search_result(self, image, search_result: dict, 
                                           max_new_tokens: int = None, temperature: float = None,
-                                          db_manager=None) -> str:
+                                          db_manager=None, similarity_threshold: float = 0.75) -> str:
         """
-        검색 결과를 사용하여 캡션을 생성합니다.
+        검색 결과를 사용하여 동적 프롬프트로 캡션을 생성합니다.
+        유사도 임계값 이상의 이미지가 있으면 Top 3 캡션을 사용하고,
+        없으면 기본 프롬프트를 사용합니다.
         
         Args:
             image: PIL Image 객체 또는 이미지 경로
@@ -205,29 +207,36 @@ class VLMCaptioner:
             max_new_tokens (int): 최대 새 토큰 수
             temperature (float): 생성 온도
             db_manager: DatabaseManager 인스턴스 (캡션 검색용)
+            similarity_threshold (float): 유사도 임계값 (기본값: 0.75)
         
         Returns:
             str: 생성된 캡션
         """
-        # 유사한 이미지들의 캡션 추출
-        similar_images = search_result.get('similar_images', [])
+        # 동적 프롬프트 생성
+        from prompt_generator import generate_vlm_prompt
         
-        if db_manager:
-            # DB 매니저를 사용하여 캡션 검색 (원본 + 생성된 캡션)
-            indices = [img_info['index'] for img_info in similar_images]
-            similar_captions = db_manager.get_captions_by_indices(indices)
+        prompt = generate_vlm_prompt(
+            search_result=search_result,
+            db_manager=db_manager,
+            similarity_threshold=similarity_threshold,
+            max_captions=3  # Top 3 캡션만 사용
+        )
+        
+        print(f"\n📝 Generated Prompt Strategy:")
+        similar_images = search_result.get('similar_images', [])
+        high_similarity_count = sum(1 for img in similar_images if img.get('similarity', 0.0) >= similarity_threshold)
+        
+        if high_similarity_count > 0:
+            print(f"  - Using {min(high_similarity_count, 3)} high-similarity captions (threshold: {similarity_threshold})")
+            print(f"  - Prompt includes similar image examples")
         else:
-            # 기존 방식: 메타데이터에서 캡션 추출
-            similar_captions = []
-            for img_info in similar_images:
-                metadata = img_info.get('metadata', {})
-                caption = metadata.get('caption', 'No caption available')
-                similar_captions.append(caption)
+            print(f"  - No images above threshold ({similarity_threshold})")
+            print(f"  - Using default prompt without examples")
         
         # 캡션 생성
-        return self.generate_caption_with_context(
+        return self.generate_caption(
             image=image,
-            similar_captions=similar_captions,
+            prompt=prompt,
             max_new_tokens=max_new_tokens,
             temperature=temperature
         )
@@ -324,9 +333,9 @@ def create_advanced_vlm_captioner(model_name: str = None, device: str = None):
 def generate_caption_with_similarity(image, search_result: dict, 
                                    model_name: str = None, device: str = None,
                                    max_new_tokens: int = None, temperature: float = None,
-                                   db_manager=None) -> str:
+                                   db_manager=None, similarity_threshold: float = 0.75) -> str:
     """
-    유사도 검색 결과를 사용하여 캡션을 생성하는 편의 함수
+    유사도 검색 결과를 사용하여 동적 프롬프트로 캡션을 생성하는 편의 함수
     
     Args:
         image: PIL Image 객체 또는 이미지 경로
@@ -336,6 +345,7 @@ def generate_caption_with_similarity(image, search_result: dict,
         max_new_tokens (int): 최대 새 토큰 수
         temperature (float): 생성 온도
         db_manager: DatabaseManager 인스턴스 (캡션 검색용)
+        similarity_threshold (float): 유사도 임계값 (기본값: 0.75)
     
     Returns:
         str: 생성된 캡션
@@ -346,5 +356,6 @@ def generate_caption_with_similarity(image, search_result: dict,
         search_result=search_result,
         max_new_tokens=max_new_tokens,
         temperature=temperature,
-        db_manager=db_manager
+        db_manager=db_manager,
+        similarity_threshold=similarity_threshold
     )
